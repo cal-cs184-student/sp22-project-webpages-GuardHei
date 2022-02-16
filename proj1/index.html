@@ -172,7 +172,7 @@
 
 <h4 align="left">EC: Viewport Rotation</h4>
 <p>I've also implemented the rotation of viewport, by pressing key "[" and "]". The rotation matrix is calculated using the same rotate() function as above. However, unlike before, we want to rotate the viewport around its center instead of the origin of the coordinate system. To do so, we first translate the viewport to the center, perform rotation, and then translate back. Therefore, we can have the transformation ndc_to_screen * viewport_rot_matrix * svg_to_ndc[current_svg], where viewport_rot_matrix = translate(0.5, 0.5) * rotate(r) * translate(-0.5, -0.5).</p>
-<p>The NDC here for whatever reason seems to have a range from 0 to 1, instead of -1 to 1 on the slides. I guess may be DirectX fashion? But that's why we translate 0.5 here.</p>
+<p>The NDC here for whatever reason seems to have a range from 0 to 1, instead of -1 to 1 on the slides. That's why we translate 0.5 here.</p>
 <p>Here are some demonstrations of the viewport rotation.</p>
 
 <br>
