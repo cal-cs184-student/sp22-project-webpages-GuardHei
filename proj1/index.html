@@ -1,7 +1,351 @@
-<html>
-	<head>
-	</head>
-	<body>
-		Project 1 here
-	</body>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head>
+<style>
+  body {
+    padding: 100px;
+    width: 1000px;
+    margin: auto;
+    text-align: left;
+    font-weight: 300;
+    font-family: 'Open Sans', sans-serif;
+    color: #121212;
+  }
+  h1, h2, h3, h4 {
+    font-family: 'Source Sans Pro', sans-serif;
+  }
+</style>
+<title>CS 184 Rasterizer</title>
+<meta http-equiv="content-type" content="text/html; charset=utf-8" />
+<link href="https://fonts.googleapis.com/css?family=Open+Sans|Source+Sans+Pro" rel="stylesheet">
+</head>
+
+
+<body>
+
+<h1 align="middle">CS 184: Computer Graphics and Imaging, Spring 2018</h1>
+<h1 align="middle">Project 1: Rasterizer</h1>
+<h2 align="middle">William Xie CS184-aah</h2>
+
+<br><br>
+
+<div>
+
+<h2 align="middle">Overview</h2>
+<p>In this project, I have implemented a simplified software rasterizer, which can render svg files with limited features supported. I programmed a screen space rasterizer for triangles, supporting barycentric interpolation of properties (e.g. colors, texture coordinates, and etc.), supersampling, and some basic texture sampling.</p>
+<p>I have written a lot of shaders running on gpu, and in that case, stuffs like rasterization and texture sampling are processed by hardware. It is very interesting to implement them in software, and I feel I have a better understanding of the mechanism behind (instead of just calling the API).</p>
+<p>The part that takes me the most time is the calculation of the texture mipmap. Again, this is all done in hardware normally. But this time, when I tried to do it myself, the texel uv derivative computation confused me. But in the end, I learned a lot from it.</p>
+
+<h2 align="middle">Section I: Rasterization</h2>
+
+<h3 align="middle">Part 1: Rasterizing single-color triangles</h3>
+
+<p>The inputs of the rasterization function are the screen space coordinates of the triangle and the color.</p>
+<p>I start rasterizing the triangle by finding its screen space bounding box. To do so, I compute the min and the max value of both x and y coordinates. This way, I don't have to do the expensive point-in-triangle test for every pixels on the screen, but rather those inside the bounding box.</p>
+<p>I take the floor of these coordinates to map to the pixel's integer index position.</p>
+<p>Then I do a two-layer loop to iterate through every pixel inside the bounding box (x_min <= x <= x_max, y_min <= y <= y_max). For every pixel, I first determine whether it is on screen. If it is on screen, I will perform the point-in-triangle test using pixel's center position (pixel's integer position + (0.5f, 0.5f))</p>
+<p>The point-in-triangle test here is basically from the slides. For each edge of the triangle, I compute whether the test point is left to, right to, or on the edge. Since the vertices could be passed in with any direction, if the test point is at the same side of all three edges, the point-in-triangle test will return TRUE.</p>
+<p>Here's a screenshot of test4.svg:</p>
+<br>
+
+<div align="middle">
+<img src="images/task1-0.png" align="middle" width="400px"/>
+</div>
+
+<h4 align="left">EC: Optimization</h4>
+<p>Besides only testing pixels inside the bounding box, I also apply a bunch of other techniques.</p>
+<p>First off, I try to make the code more cache friendly. In my original two-layered loop, I first iterated x-coord, then y-coord. However, as we know the sample buffer is organized in the row-major method. I switched to iterate y-coord first, then x-coord. This way, the writing of the pixel is more likely to be cached.</p>
+<p>The improvement is rather small though. Under a resolution of 1600 x 1200, with no super sampling, this gives us a constant 3-4% speedup when drawing test5.svg (I've tested it multiple times to make sure it's not some fluctuations).</p>
+<p>The other optimization I've done is to skip unnecessary pixel tests. We know that triangle is a convex shape, and thus it will be continuous on the scanlines of the screen.</p>
+<p>Therefore, I create a flag "hasSwept" when iterating every row of the screen, and set it to FALSE by default. The first time I find a point inside the triangle on that row, I set the flag to TRUE. Then, if I find the first point outside the triangle after that, and the flag is set to TRUE, then based on the convex nature of the triangle, I know I can skip the rest of the pixels on that row.</p>
+<p>This gives us a huge speedup of 30% from the previous optimization.</p>
+<p>Finally, we further unroll the inner loop by a factor of 4 to reduce branches and jumps. This gives us a constant 12% speedup from the previous optimization.</p>
+<p>Generally speaking, memory access optimization is not super useful here. I doubt the reason being we already have complex point-triangle test between filling out each pixels. Therefore, even we rearrange the loops to favor cacheline, the point-in-triangle test in-between could easily disrupt the cache. I did experiment with an alternative way, which found out the start & end position of a row first, and then filled the row out. This way, I could ensure a cache-friendly write. However, according to my test, this actually turned out slower than the original version -- maybe due to doubling the loops.</p>
+<p>Overall, here's the speedup table. All measurements are computed using high_resolution_clock, enclosing the svg.draw() call inside DrawRend::redraw(). Data shown here are from the drawings of test5.svg (1600x1200, no supersampling).</p>
+
+<br>
+<div align="middle">
+  <table style="width=100%" border="1" cellpadding="3" cellspacing="5">
+    <tr>
+      <td>Original (No Optimization)</td>
+      <td>0.00504642 s</td>
+    </tr>
+    <tr>
+      <td>After Rearrange Loops</td>
+      <td>0.00488518 s</td>
+    </tr>
+    <tr>
+      <td>After early stop</td>
+      <td>0.00375245 s</td>
+    </tr>
+    <tr>
+      <td>After unroll of 4</td>
+      <td>0.00334831 s</td>
+    </tr>
+  </table>
+</div>
+<br>
+
+<h3 align="middle">Part 2: Antialiasing triangles</h3>
+
+<p>In the current setup, we're always sampling at a constant rate. However, we know that on the edges of a triangle, there is a sudden increase in the frequency of signals. Thus, if we render the svg at a low resolution, our sample rate is not high enough to cover that high frequency signal, and will alias it as a jaggy signal.</p>
+<p>By supersampling, we eventually increase the sample rate uniformly according to the specs' setup. Here, we use a simple box filter to remove the staircases on the triangle edges, by blending the colors of the surronding samples.</p>
+<p>My implementation is conceptually very simple -- render the image at a sample_rate higher resolution and then resolve to the target resolution.</p>
+<p>To implement the first one, when I allocate the sample buffer, I make it the size of width * height * sample_rate to store the supersample results. Then, inside the rasterizer, I multiply the x and y coordinates of the verrtices by sqrt(sample_rate) to get the super_sampled position. The rest of sampling logic is very similar.</p>
+<p>Finally, when resolving the sample buffer to framebuffer, we take average of the pixels in the sqrt(sample_rate) x sqrt(sample_rate) quad.</p>
+<p>I have also tried an alternative method, which does not increase the render resolution, but rather samples sample_rate times for each point. However, I realize float-point precision is an issue, and will not behave correctly under extreme cases (like the hardcore tests). Therefore, I reformatted my code to use the method I described above.</p>
+
+<br>
+<div align="middle">
+  <table style="width=100%">
+    <tr>
+      <td>
+        <img src="images/task2-0.png" align="middle" width="400px"/>
+        <figcaption align="middle">sample rate = 1</figcaption>
+      </td>
+      <td>
+        <img src="images/task2-1.png" align="middle" width="400px"/>
+        <figcaption align="middle">sample rate = 4</figcaption>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <img src="images/task2-2.png" align="middle" width="400px"/>
+        <figcaption align="middle">sample rate = 9</figcaption>
+      </td>
+      <td>
+        <img src="images/task2-3.png" align="middle" width="400px"/>
+        <figcaption align="middle">sample rate = 16</figcaption>
+      </td>
+    </tr>
+  </table>
+</div>
+<br>
+
+<p>we can clearly see that when sample rate = 1, the right corner of the red triangle existing serious aliasing issues as jaggieness.</p>
+<p>When sample rate = 4, we sample 4 times more, giving us a better understanding of the actual coverage information of one pixel, helping us connecting the "flying" pixel points.</p>
+<p>The higher the sample rate is, the more information we know for each pixel, and smoother edges we can get in the final image.</p>
+
+<h4 align="left">EC: Halton Sequence Sampling Pattern</h4>
+<p>Halton sequence is a commonly used low discrepancy sampling pattern. A lot of game engine's temporal antialiasing solutions use halton (primary base 2, secondary base 3). Even Nvidia's DLSS 2.0 also suggests developers to use Halton sequence to generate jitter pattern in its white paper.</p>
+<p>Compared to the uniform grid sampling method, halton sequence generates sample points that look random. This way, halton converts the usual jaggy aliasing effect into noises. Due to its low discrepancy property, the noise is also very local and low frequency, and is harder to spot. </p>
+<p>There are also other low discrepancy sampling patterns. For example, hammserly sequence is commonly used in Monte Carlo integration. However, hammserly sequence requires a known sample count to keep low discrepancy, where Halton doesn't.</p>
+<p>Below we have two 4x super sampled images using uniform grid sampling and halton based sampling (primary base = 2, secondary base = 3, first 4 points). The difference here is very subtile due to th simple shading condition, but should be visible in more complex aliasing scenes (specular aliasing, soft shadow aliasing, and etc.). But we can still see that the halton one generation produces softer connection between "aliasing lines", probably even blurier than expected. This is a good demonstration of how halton turns aliasing into noises.</p>
+
+<br>
+<div align="middle">
+  <table style="width=100%">
+    <tr>
+      <td>
+        <img src="images/task2-uniform.png" align="middle" width="400px"/>
+        <figcaption align="middle">uniform grid sampling</figcaption>
+      </td>
+      <td>
+        <img src="images/task2-halton.png" align="middle" width="400px"/>
+        <figcaption align="middle">halton based sampling</figcaption>
+      </td>
+    </tr>
+  </table>
+</div>
+<br>
+
+<h3 align="middle">Part 3: Transforms</h3>
+
+<p>I tried to re-create the classic jumping pose of mario ^^</p>
+
+<br>
+<div align="middle">
+  <table style="width=100%">
+    <tr>
+      <td>
+        <img src="images/task3-0.png" align="middle" width="400px"/>
+        <figcaption align="middle">Our Cube Man</figcaption>
+      </td>
+      <td>
+        <img src="images/task3-1.png" align="middle" width="300px"/>
+        <figcaption align="middle">Reference Mario</figcaption>
+      </td>
+    </tr>
+  </table>
+</div>
+<br>
+
+<h4 align="left">EC: Viewport Rotation</h4>
+<p>I've also implemented the rotation of viewport, by pressing key "[" and "]". The rotation matrix is calculated using the same rotate() function as above. However, unlike before, we want to rotate the viewport around its center instead of the origin of the coordinate system. To do so, we first translate the viewport to the center, perform rotation, and then translate back. Therefore, we can have the transformation ndc_to_screen * viewport_rot_matrix * svg_to_ndc[current_svg], where viewport_rot_matrix = translate(0.5, 0.5) * rotate(r) * translate(-0.5, -0.5).</p>
+<p>The NDC here for whatever reason seems to have a range from 0 to 1, instead of -1 to 1 on the slides. I guess may be DirectX fashion? But that's why we translate 0.5 here.</p>
+<p>Here are some demonstrations of the viewport rotation.</p>
+
+<br>
+<div align="middle">
+  <table style="width=100%">
+    <tr>
+      <td>
+        <img src="images/task3-2.png" align="middle" width="400px"/>
+        <figcaption align="middle">0 deg</figcaption>
+      </td>
+      <td>
+        <img src="images/task3-3.png" align="middle" width="400px"/>
+        <figcaption align="middle">90 deg (cw)</figcaption>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <img src="images/task3-4.png" align="middle" width="400px"/>
+        <figcaption align="middle">180 deg (cw)</figcaption>
+      </td>
+      <td>
+        <img src="images/task3-5.png" align="middle" width="400px"/>
+        <figcaption align="middle">270 deg (cw)</figcaption>
+      </td>
+    </tr>
+  </table>
+</div>
+<br>
+
+<h2 align="middle">Section II: Sampling</h2>
+
+<h3 align="middle">Part 4: Barycentric coordinates</h3>
+<p>We want to store attributes or certain data for the mesh (e.g. vertex color, smooth normal, texcoord, and etc.), it is easier to store them on the vertices of the mesh/triangles, instead of storing them directly on the "surfaces". The reason being vertices are most countable, but not the "surfaces".</p>
+<p>However, if so, we need to figure out a way to compute the correct and smooth interpolated values. That's why we introduce the barycentric interpolation.</p>
+<p>The barycentric coordinate system uses the triangle's 3 vertices as its basis. The barycentric coordinates can be translated in to how close a point is to the three vertices (with the assumption that the point is always inside the triangle).</p>
+<p>From the example triangle below, if we assume the bottom left corner is vertex A, the top corner is vertex B, and the bottom right corner is vertex C. The barycentric coordinates of a point at vertex A will be (1, 0, 0), at vertex B will be (0, 1, 0), at vertex C will be (0, 0, 1). If it is located in the exact center of the triangle, then the coordinates will be (1/3, 1/3, 1/3).</p>
+<p>This is why the color is purely red at vertex A, purely green at vertex B, purely blue at vertex C. And in the center of the triangle, the color is an average of the three colors.</p>
+
+<div align="middle">
+  <img src="images/task4-1.png" align="middle" width="300px"/>
+  <figcaption align="middle">Example Triangle</figcaption>
+</div>
+
+<p>After implemented task 4, this is what I've got for test7.svg:</p>
+
+<div align="middle">
+  <img src="images/task4-0.png" align="middle" width="300px"/>
+  <figcaption align="middle">test7.svg</figcaption>
+</div>
+
+<h3 align="middle">Part 5: "Pixel sampling" for texture mapping</h3>
+<p>Now we want to texture our triangles instead of interpolated vertex colors. To do so, we want to map the pixel location to texel spce location. Since we already know the texture coord (uv) of the 3 vertices, we can simply use barycentric interpolation to compute the final uv coord of the given pixel. After obtaining the uv, we always sample the level 0 mipmap. The sample method is determined by variable psm.</p>
+<p>When psm == P_NEAREST, we perform nearest sampling. In this case, I multiply the x & y coords of uv with mip width & height to compute the decimal position in texel space. After that, I always pick the nearest texel that contains this coord by applying floor() (also clamp the position within range).</p>
+<p>
+  When psm == P_LINEAR, we perform bilinear sampling, which is slightly more complicated. Still, we need to multiply the x & y coords of uv with mip width & height to compute the decimal position in texel space. Then, we want to get the nearest 4 texels around. We first perform floor() and ceil() on both x & y coords, creating 4 different positions. However, this is still not the closest 4, but rather, the closest top right 4 texels. To solve this, if (uv.x - floor(uv.x) < .5f), we minus all x coords by 1, because we know the point is closer to the left. Similarly, if (uv.y - floor(uv.y) < .5f), we minus all y coords by 1.
+  Given 4 positions, we can obtain 4 texels, u00, u10, u01, u11, where u00 and u10 are on the same row of the texture, while u01 and u11 are on the same row. We interpolate the colors between u00 and u10 linearly based on the relative uv distance to the 2 texels, marking the result color as c0. We apply the same linear interpolation between u01 and u11, and get c1. Finally, we interpolate c0 and c1 based on the relative y distance of uv, resulting a color of c2, which is the color we'll use.
+</p>
+<p>And here we can see the results:</p>
+
+<br>
+<div align="middle">
+  <table style="width=100%">
+    <tr>
+      <td>
+        <img src="images/task5-0.png" align="middle" width="400px"/>
+        <figcaption align="middle">sample rate = 1, nearest</figcaption>
+      </td>
+      <td>
+        <img src="images/task5-1.png" align="middle" width="400px"/>
+        <figcaption align="middle">sample rate = 1, bilinear</figcaption>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <img src="images/task5-2.png" align="middle" width="400px"/>
+        <figcaption align="middle">sample rate = 16, nearest</figcaption>
+      </td>
+      <td>
+        <img src="images/task5-3.png" align="middle" width="400px"/>
+        <figcaption align="middle">sample rate = 16, bilinear</figcaption>
+      </td>
+    </tr>
+  </table>
+</div>
+<br>
+
+<p>From the above images, we can clearly see that when sample rate is set to 1, bilinear sampling has a huge advantage. When using nearest sampling, we can see disconencted lines, but this is partially eliminated in bilinear sampling.</p>
+<p>The difference is much smaller when sample rate is set to 16. This is due to the problem of nearest sampling.</p>
+<p>When we perform sampling, we are actually using the uv of the center point of a screen space pixel. Though we sample uniformly in screen space, the sampling frequency is not uniform in texel space due to view angles, surface slops, and etc. Therefore, the actual texel space samppling frequency may be lower than expected, creating texture aliasing.</p>
+<p>To solve this, there are two options. First, we can brute force increase the screen space sample rate by super sampling. But since the mapping between screen space and texel space sampling frequency is not 1-to-1, you may need to increase the resolution a lot, which is very inefficient.</p>
+<p>Therefore, people invented bilinear sampling, which tries to increase the sample rate at texel space, by taking a weighted average of the 4 closest results, and results into a smoother overall image.</p>
+<p>This is why bilinear sampling benefits the most when sample rate is low, but less when sample rate is very high (since the screen space sampling frequency is so high at that point, texel space sampling frequency is also reasonably high enough).</p>
+
+<h3 align="middle">Part 6: "Level sampling" with mipmaps for texture mapping</h3>
+<p>There is also another view of the above problem. When we sample the texture given a pixel location, in the above cases, we only take the center of the pixel into account. However, we know that a screen space pixel can cover multiple texels. Therefore, if we always sample the level 0 mipmap, we could experience serious aliasing if the surface slope is high, or the surface is far away from camera (so a pixel will contain a lot of texels).</p>
+<p>To solve this problem, we introduce the idea of mipmaping and level sampling. Basically we prefilter the texture beforehand, and sample the correct mipmap level based on a runtime texel-coverage estimation. Prefiltering can use different methods, including typical box filter or kaiser filter. Here, it is already done for us. What we need to do is to figure out which level we need to sample.</p>
+<p>To estimate the texel space area of a given screen space pixel, we assume that the covered area in the texel space is also a quad shape. Then we need to find out the width and the height of the quad to compute the size. And this was what confused me the most.</p>
+<p>Intuitively, to compute the width of the quad, we'd like to find out the uv on the left and the right of the pixel, and compute the difference. Similarly for height, we find out the uv on the top and bottom of the pixel. However, this is not actually the case here.</p>
+<p>As provided by the specs, we should compute the width & height by the differences between the uv of current pixel and it's neighboring pixels. It confused me at first, because it is not really accurate if you think about it. The length between the center of one pixel to its neighbor does not necessarily equal to its width, though the inaccuracy here should be very small.</p>
+<p>After doing some research, I finally understand why this is the case. I think this calculation method is adopted from how actual GPU hardware computes ddx and ddy -- it always rasterizes a 2x2-pixel quad. Thus, ddx and ddy are the differences of the left & right, top & bottom pixels' uvs. It is not very accurate, admittedly, but it is super fast and provides good enough estimation. You don't have to do any extra barycentric interpolation to find out the new uvs, instead you reuse the uv previously calculated from the neighbors.</p>
+<p>However, this design could also fundamentally hurt the performance of gpu when there are a huge amount of triangles smaller than 1 pixel size (e.g. super high detailed mesh at distance), since no matter how small the triangle is, gpu always needs to invoke a 2x2 quad rasterization process. This is why Unreal 5 moves the small triangle rasterization process completely away from hardware rasterizer to a compute shader based software rasterizer in their Nanite system.</p>
+<p>That's enough off-topic talk. Now, back to our implementation here. After compute the uv differences, we multiply this by the texture size to get actual differences in unit of texels. Then we find out the longest edge in the triangle constructed by du/dx & dv/dx and du/dy & dv/dy. Finally we take log2 of the length of that edge, because texel's size is 2^n when mipmap level increases. The result of the prior operation determines which mipmap we want to sample from (of course, don't forget to clamp).</p>
+<p>Here's a comparison of always sampling at level 0 and sample at the nearest level:</p>
+
+<br>
+<div align="middle">
+  <table style="width=100%">
+    <tr>
+      <td>
+        <img src="images/task6-0.png" align="middle" width="400px"/>
+        <figcaption align="middle">L_ZERO & P_NEAREST</figcaption>
+      </td>
+      <td>
+        <img src="images/task6-1.png" align="middle" width="400px"/>
+        <figcaption align="middle">L_NEAREST & P_NEAREST</figcaption>
+      </td>
+    </tr>
+  </table>
+</div>
+<br>
+
+<p>Here we can see that even though we are using nearest pixel sampling, by choosing the correct mipmap, the aliasing can still be largely eliminated. Another comparsion can be seen here, where I swap the texture to a high frequency blue noise texture, yet the model remains the same barrel shape as above. (This is hell mode challenge.)</p>
+
+<div align="middle">
+  <img src="images/noise.png" align="middle" width="250px"/>
+  <figcaption align="middle">original blue noise texture</figcaption>
+</div>
+
+<br>
+<div align="middle">
+  <table style="width=100%">
+    <tr>
+      <td>
+        <img src="images/task6-2.png" align="middle" width="400px"/>
+        <figcaption align="middle">L_ZERO & P_NEAREST</figcaption>
+      </td>
+      <td>
+        <img src="images/task6-3.png" align="middle" width="400px"/>
+        <figcaption align="middle">L_ZERO & P_LINEAR</figcaption>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <img src="images/task6-4.png" align="middle" width="400px"/>
+        <figcaption align="middle">L_NEAREST & P_NEAREST</figcaption>
+      </td>
+      <td>
+        <img src="images/task6-5.png" align="middle" width="400px"/>
+        <figcaption align="middle">L_NEAREST & P_LINEAR</figcaption>
+      </td>
+    </tr>
+  </table>
+</div>
+
+<div align="middle">
+  <img src="images/task6-6.png" align="middle" width="400px"/>
+  <figcaption align="middle">L_LINEAR & P_LINEAR</figcaption>
+</div>
+<br>
+
+<p>The L_ZERO & P_NEAREST image is almost all high frequency noise. Compared to that, the L_ZERO & P_LINEAR image has a lower frequency noise in the center thanks to the bilinear sampling.</p>
+<p>If we simply use nearest pixel sampling but aid with nearest level sampling, we can see that the noise frequency is reduced at the sides. We are picking higher level mipmaps there (slope makes a screen space pixel covering more texels), giving out a blurier result.</p>
+<p>Compared to that, if we also add bilinear sampling, we can see the overall noise frequency is all reduced and closer between the center and the borders. However, there is still a clear line between each mipmap level.</p>
+<p>To fix this problem, we introduce trilinear filtering, which not only does bilinear sampling, but also interpolates the result between the closest two mip levels (which we use floor() and ceil() to achieve that in our implmentation). With trilinear sampling, we can see the transition between mipmap levels no longer stands out, and is much, much smoother.</p>
+<p>Now, we have three antialiasing method for texture mapping. Super sampling is the most expensive one. Not only it requires sample_rate times memory, but it also increases sample_rate times render pressure. Furthermore, since the mapping between screen space sampling and texel space sampling is not 1-to-1, the improvement may not be significant unless the sample rate is super high.</p>
+<p>Bilinear sampling is a nice choice. It does not require any extra memory, though needs 3 more texture samples. Texture sampling can be expensive due to the slow access of memory, but in the reality, modern GPU hardware supports texture cache, and neighboring pixels should have a high chance to reuse the samples from the cache. Thus, the performance penalty is reasonable. But since it is only sampling the nearest 4 texels, the antialiasing power is also not too strong.</p>
+<p>Mipmapping is also good. It requires 33% more memory for textures, which is usually not a big deal, but can largely reduce texture aliasing. Moreover, on actual GPU hardware, as the texels are closer to each other in higher level mipmaps, cache hit rate will significantly increase when sampling, giving a nice performance speedup. However, since we are assuming an isotropic filtering condition, the resultant image might be blurier than what we want when mip level is high.</p>
+<p>Trilinear filtering (bilinear sampling + mipmapping) is a widely used combination in many mobile games, due to its good antialiasing result and relatively fast performance. If we want to eliminate the extra bluriness introduced by mipmapping, we could use anisotropic filtering (which I didn't get time to implement).</p>
+
+<h2 align="middle">Section III: Art Competition</h2>
+<p>^-^</p>
+
+<h3 align="middle">Part 7: Draw something interesting!</h3>
+
+</body>
 </html>
