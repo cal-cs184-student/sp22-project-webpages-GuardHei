@@ -1,7 +1,612 @@
-<html>
-	<head>
-	</head>
-	<body>
-		Project 2 here
-	</body>
+        <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+        <html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+        <head>
+            <style>
+                body {
+                    padding: 100px;
+                    width: 1000px;
+                    margin: auto;
+                    text-align: left;
+                    font-weight: 300;
+                    font-family: 'Open Sans', sans-serif;
+                    color: #121212;
+                }
+
+                h1,
+                h2,
+                h3,
+                h4 {
+                    font-family: 'Source Sans Pro', sans-serif;
+                }
+            </style>
+            <title>CS 184 Mesh Editor</title>
+            <meta http-equiv="content-type" content="text/html; charset=utf-8" />
+            <link href="https://fonts.googleapis.com/css?family=Open+Sans|Source+Sans+Pro" rel="stylesheet" />
+        </head>
+
+
+        <body>
+
+            <a href="https://cal-cs184-student.github.io/sp22-project-webpages-GuardHei/proj2/index.html">https://cal-cs184-student.github.io/sp22-project-webpages-GuardHei/proj2/index.html</a>
+            <h1 align="middle">CS 184: Computer Graphics and Imaging, Spring 2020</h1>
+            <h1 align="middle">Project 2: Mesh Editor</h1>
+            <h2 align="middle">William Xie, CS184-AAH & Amy Tran, CS184-ACN</h2>
+
+            <br /><br />
+
+                  <div>
+
+                      <h2 align="middle">Overview</h2>
+                      <p>In this assignment, we have built a simple mesh editor program, which can generate Bezier curves & Bezier surfaces, smooth out polygon mesh normals, flip & split polygon mesh edges, and subdivide polygon meshes. This assignment is particularly interesting to us because the major data structure we use is HalfEdge, which is a lot different from the typical triangle-index based mesh structure used in game engines. Also, taking the 3d modelling DeCal at the same time, this assignment gives us some insights on how programs like Maya works.</p>
+
+                      <h2 align="middle">Section I: Bezier Curves and Surfaces</h2>
+
+                      <h3 align="middle">Part 1: Bezier curves with 1D de Casteljau subdivision</h3>
+
+                      <p>Here we implemented the de Casteljau's algorithm. De Casteljau's involves a sequence of subdivision of the edges. We linearly interpolate the neighboring points' positions to determine the control points for the next recursion until there is only one point left, which is the point on the final Bezier curve. We've defined a lerp() function to help us process all the linear interpolation, and used std::vector<Vector2D> to store the control points for the next recursion.</Vector2D></p>
+                      <p>Below we have a step-by-step evaulation of a 6-point Bezier curve, with t = 0.5:</p>
+
+                      <div align="middle">
+                          <table style="width=100%">
+                              <tr>
+                                  <td>
+                                      <img src="images/task1-0.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Original "Curve"</figcaption>
+                                  </td>
+                                  <td>
+                                      <img src="images/task1-1.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Step 1</figcaption>
+                                  </td>
+                              </tr>
+                              <br />
+                              <tr>
+                                  <td>
+                                      <img src="images/task1-2.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Step 2</figcaption>
+                                  </td>
+                                  <td>
+                                      <img src="images/task1-3.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Step 3</figcaption>
+                                  </td>
+                              </tr>
+                              <tr>
+                                  <td>
+                                      <img src="images/task1-4.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Step 4</figcaption>
+                                  </td>
+                                  <td>
+                                      <img src="images/task1-5.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Final Curve</figcaption>
+                                  </td>
+                              </tr>
+                          </table>
+                      </div>
+
+                      <p>Below we have a different step-by-step evaulation of a 6-point Bezier curve, with a smaller t value:</p>
+
+                      <div align="middle">
+                          <table style="width=100%">
+                              <tr>
+                                  <td>
+                                      <img src="images/task1-6.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Original "Curve"</figcaption>
+                                  </td>
+                                  <td>
+                                      <img src="images/task1-7.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Step 1</figcaption>
+                                  </td>
+                              </tr>
+                              <br />
+                              <tr>
+                                  <td>
+                                      <img src="images/task1-8.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Step 2</figcaption>
+                                  </td>
+                                  <td>
+                                      <img src="images/task1-9.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Step 3</figcaption>
+                                  </td>
+                              </tr>
+                              <tr>
+                                  <td>
+                                      <img src="images/task1-10.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Step 4</figcaption>
+                                  </td>
+                                  <td>
+                                      <img src="images/task1-11.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Final Curve</figcaption>
+                                  </td>
+                              </tr>
+                          </table>
+                      </div>
+
+                      <h3 align="middle">Part 2: Bezier surfaces with separable 1D de Casteljau subdivision</h3>
+                      <p>To evaulate a Bezier surface, we use separable 1D de Castleljau subdivision. The reason it works is because the original de Castleljau is an linear operation. Thus, rather than doing a bilinear interpolation among the closest 4 points, we could perform 1D de Castleljau on one direction, and then apply 1D de Castleljau on the results of the previous operation.</p>
+                      <p>Here evaluateStep() performs one step of 1D de Castleljau subdivision, and evalute1D() applies a full 1d de Castleljau subdivision on a group of control points and returns the final point on the 1D Bezier curve. Then inside evalute(), we first perform 1D de Castleljau subdivision on every row of the control points using the coefficient u, and push back the points into a list. After that, we perform one final de Castleljau subdivision on that list using the coefficient v. The result is shown below: </p>
+
+                      <div align="middle">
+                          <img src="images/task2-0.png" align="middle" width="400px" />
+                          <figcaption align="middle">Teapot.bez</figcaption>
+                      </div>
+
+                      <h2 align="middle">Section II: Sampling</h2>
+
+                      <h3 align="middle">Part 3: Average normals for half-edge meshes</h3>
+                      <p>To implement area-weighted vertex normal smoothing, we first iterate through all the neighboring vertices around the current vertex using the halfedge structure. Then we compute distance ab = next_neighbor_pos - current_pos, ac = last_neighbor_pos - current_pos for each neighbor. Then, the area weighted normal should be cumulative sum of all normalize(cross(ab, ac) / 2.0f). However, since we will do the final normalization, the (/ 2.0f) part is not necessary and can be excluded for better performance (though I still included it for the sake of understanding). It is also worth noting that if we swap ab and ac, then we need to negate the final normal since it will point to the oppositing direction. Here's a comparsion of whether we choose to smooth the normals:</p>
+
+                      <div align="middle">
+                          <table style="width=100%">
+                              <tr>
+                                  <td>
+                                      <img src="images/task3-0.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Flat Shading</figcaption>
+                                  </td>
+                                  <td>
+                                      <img src="images/task3-1.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Phong Shading</figcaption>
+                                  </td>
+                              </tr>
+                          </table>
+                      </div>
+
+                      <h3 align="middle">Part 4: Half-edge flip</h3>
+                      <p>Before actually coding on edge flip, first we want to understand clearly how will each element change after the flip. Here's the notation we used: </p>
+
+                      <div align="middle">
+                          <img src="images/task4-3.jpg" align="middle" width="400px" />
+                          <figcaption align="middle">Edge Flip Elements Assignment</figcaption>
+                      </div>
+
+                      <p>In terms of implementation, there is really not much to say. We first get all the elements (half edges, edges, faces, vertices) before the flip. Then if either one of the faces is on boundary, we immediately return. After that, we re-assign the elements to match the flipped relationships.</p>
+                      <p>Here we get some screenshots of the Teapot model after applying several edge flip operations.</p>
+
+                      <div align="middle">
+                          <table style="width=100%">
+                              <tr>
+                                  <td>
+                                      <img src="images/task3-0.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Original Teapot</figcaption>
+                                  </td>
+                                  <td>
+                                      <img src="images/task4-0.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Flip Once</figcaption>
+                                  </td>
+                              </tr>
+                              <tr>
+                                  <td>
+                                      <img src="images/task4-1.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Flip Multiple Times</figcaption>
+                                  </td>
+                                  <td>
+                                      <img src="images/task4-0.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Flip Multiple Times with Phong Shading</figcaption>
+                                  </td>
+                              </tr>
+                          </table>
+                      </div>
+
+                      <h3 align="middle">Part 5: Half-edge split</h3>
+                      <p>Splitting the edges follow a similar procedural as flipping the edges, but more complicated. Again, here is our notation of the elements before and after an edge split, assuming the edge is not a boundary edge:</p>
+
+                      <div align="middle">
+                          <img src="images/task5-5.jpg" align="middle" width="400px" />
+                          <figcaption align="middle">Edge Split Elements Assignment</figcaption>
+                      </div>
+
+                      <p>If it is a boundary edge, right now we directly return the vertex of the input edge. Otherwise, we first get all the elements needed for the operation (half edges, edges, faces, vertices). Then, we create the additional elements used for the split, including one new vertex which has a position right in the middle of v0 and v1. After that, we re-assign the elements according to my notation above, and return the newly created vertex.</p>
+                      <p>
+                          It didn't sound too crazy, but debugging the process took a long time. After assigning a bunch of half edges' new properties lines by lines, we suddenly realized that we actually have a function called setNeighbors() to bundle the entire assignment of a single half edge. Another problem that we faced was that the program crashed every time we ran the upsample. The reason being I was not using the correct method to generate the new elements. Instead of directly calling the constructors of different structs, I should call newEdge(), newHalfedge(), newFace and etc.
+                          The final problem we encountered was that the result looked fine after the first split, but could cause holes after several more split. I was very confused at first because I thought I did assign everything correctly. The actual problem was that a halfedge could have multiple potential choices for its "next", we shouldn't change its "next" if this haldedge is not subject to change. This means we should not re-assign different elements to the outer halfedges (h6~h9). Even though it is not wrong to pick another "next" halfedge, it will break the iteration of the entire mesh, and could have some information lost due to not linked by anything after the split.
+                      </p>
+
+                      <p>Here're our results: </p>
+
+                      <div align="middle">
+                          <table style="width=100%">
+                              <tr>
+                                  <td>
+                                      <img src="images/task5-0.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Original Cow</figcaption>
+                                  </td>
+                                  <td>
+                                      <img src="images/task5-1.png" align="middle" width="400px" />
+                                      <figcaption align="middle">After Splits</figcaption>
+                                  </td>
+                              </tr>
+                          </table>
+                      </div>
+
+                      <p>Our implementation is also robust with edge flips: </p>
+
+
+                      <div align="middle">
+                          <table style="width=100%">
+                              <tr>
+                                  <td>
+                                      <img src="images/task5-2.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Original Teapot</figcaption>
+                                  </td>
+                                  <td>
+                                      <img src="images/task5-3.png" align="middle" width="400px" />
+                                      <figcaption align="middle">After Flips</figcaption>
+                                  </td>
+                              </tr>
+                              <tr>
+                                  <td>
+                                      <img src="images/task5-4.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Plus Some Splits</figcaption>
+                                  </td>
+                                  <td>
+                                      <img src="images/task5-4.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Plus Some Splits</figcaption>
+                                  </td>
+                              </tr>
+                          </table>
+                      </div>
+
+                      <h5>Extra Credit: </h5>
+
+                      <p>
+                          We also implemented edge splits for boundary edges which is essentially the same as a regular split, but we only
+                          split one face instead of 2 since the other face is a virtual boundary face. <br />
+                          You can see the results below.
+
+                      </p>
+                      <div align="middle">
+                          <table style="width=100%">
+                              <tr>
+                                  <td>
+                                      <img src="images/task5-6.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Original Beattle</figcaption>
+                                  </td>
+                                  <td>
+                                      <img src="images/task5-7.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Close up on edge to split</figcaption>
+                                  </td>
+                              </tr>
+                              <tr>
+                                  <td>
+                                      <img src="images/task5-8.png" align="middle" width="400px" />
+                                      <figcaption align="middle">After edge split</figcaption>
+                                  </td>
+                                  <td>
+                                      <img src="images/task5-8.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Close up of split edge</figcaption>
+                                  </td>
+                              </tr>
+                          </table>
+                      </div>
+
+                      <h3 align="middle">Part 6: Loop subdivision for mesh upsampling</h3>
+                      <p>
+                          In order to implement loop subdivision, we first looped through all of the existing verticies and calculated
+                          their new positions by using the formula  (1 - n * u) * original_position + u * original_neighbor_position_sum
+                          where n is the number of degrees of the vertex, and u = 3/16 if n = 3, and 3/(8n) if not. Within that for
+                          loop, we looped through all of the neighbors of each vertex so that we are able to calculate the original_neighbor_position_sum.
+                          The new position variable in each vertex is set to the calculated position. <br />
+                          After this loop, we looped through all of the already existing edges so that we can calculate the position
+                          of the vertex that will interesect it once the split is applied to the edge<br />
+                          Once this was done, we looped through
+                          all of the existing edges once again to split each one. We made sure that we did not end up in an infinite
+                          loop and try to split new edges by recording the number of edges that the mesh has before the loop, and then
+                          counting all of the edges that we have seen. Once the number of edges that we have seen is equal to the
+                          number of edges originally in the mesh, then we stop our iteration. We can do this becuase when we add new
+                          edges in our edge split function, the edges get added to the end of our iterator. Inside of our split edge
+                          function, we made sure to set the new_position attribute for the new vertex to be the new positon of the
+                          edge that we set in the last loop. <br />
+                          Next, we iterate through all of the edges in the mesh (old and new), amd flip the verticies of the edges, but
+                          we only do this if the edge is connecting an old vertex to a new vertex. We also exclude boundary edges from being
+                          flipped. <br />
+                          Lastly, we loop through all of the verticies and set their current position (vertex->position) to be what the
+                          new position was. This ensures that we update all of the verticies to their correct position. <br /> <br />
+                          <b> Debugging </b> <br />
+                          We had a few issues that we had to debug which included an infinite loop, and incorrect positions of the new verticies. In order
+                          to find out which of our loops was running infinitely, we placed print statements between each loop. We then figiured out that we were looping
+                          through the neighboring verticies in our first loop infinitely because of reused variables.  Once we were able to run the code, and see some results,
+                          we noticed that the placement of our points did not look like what we expected, so we carefully inspected teh models and figured out that
+                          the posiitons of the old verticies were correct, but the new ones were slightly misplaced. We realized that this was because we were using the
+                          wrong verticies to calculate the position of our new verticies. <br /> <br />
+
+                          <b>Screenshots of mesh upsampling</b>
+
+                      </p>
+
+                      <div align="middle">
+                          <table style="width=100%">
+                              <tr>
+                                  <td>
+                                      <img src="images/task6-teapot.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Original Teapot Mesh</figcaption>
+                                  </td>
+                              </tr>
+                          </table>
+                      </div>
+                      <div align="middle">
+                          <table style="width=100%">
+                              <tr>
+                                  <td>
+                                      <img src="images/task6-teapot-upsample-1.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Teapot Mesh Upsampled Once</figcaption>
+                                  </td>
+                                  <td>
+                                      <img src="images/task6-teapot-upsample-2.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Teapot Mesh Upsampled Twice</figcaption>
+                                  </td>
+                              </tr>
+                              <br />
+                              <tr>
+                                  <td>
+                                      <img src="images/task6-teapot-upsample-3.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Teapot Mesh Upsampled Three Times</figcaption>
+                                  </td>
+                                  <td>
+                                      <img src="images/task6-teapot-upsample-4.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Teapot Mesh Upsampled Four Times</figcaption>
+                                  </td>
+                              </tr>
+                          </table>
+                      </div>
+
+
+                      <p>
+                          As shown above, we can see that as we continue to upsample, the overall shape appears to become smoother. Let's look at some more examples to see if
+                          we can find any similarities.
+                      </p>
+
+                      <div align="middle">
+                          <table style="width=100%">
+                              <tr>
+                                  <td>
+                                      <img src="images/task6-torus.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Original Torus Mesh</figcaption>
+                                  </td>
+                              </tr>
+                          </table>
+                      </div>
+                      <div align="middle">
+                          <table style="width=100%">
+                              <tr>
+                                  <td>
+                                      <img src="images/task6-torus-upsample-1.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Torus Mesh Upsampled Once</figcaption>
+                                  </td>
+                                  <td>
+                                      <img src="images/task6-torus-upsample-2.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Torus Mesh Upsampled Twice</figcaption>
+                                  </td>
+                              </tr>
+                              <br />
+                              <tr>
+                                  <td>
+                                      <img src="images/task6-torus-upsample-3.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Torus Mesh Upsampled Three Times</figcaption>
+                                  </td>
+                                  <td>
+                                      <img src="images/task6-torus-upsample-4.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Torus Mesh Upsampled Four Times</figcaption>
+                                  </td>
+                              </tr>
+                          </table>
+                      </div>
+
+                      <p>
+                          The effect that upsampling has on edges is easier to see with the torus. The original torus mesh has very sharp edges, but as we continue to
+                          upsample, it gets smoother and smoother til you can not see any harsh edges or corners. We can reduce the effects of the edges smoothing out
+                          by pre-splitting the edges that we want to keep becuase this will cause a less drastic change when we upsample. For the case of the torus, if
+                          we pre-split the outer faces to look like below, we can get edges that are a bit sharper than before.
+                      </p>
+
+                      <div align="middle">
+                          <table style="width=100%">
+                              <tr>
+                                  <td>
+                                      <img src="images/task6-torus-sym.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Symmetrical Torus Mesh</figcaption>
+                                  </td>
+                                  <td>
+                                      <img src="images/task6-torus-sym-upsample.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Symmertical Torus Mesh Upsampled Three Times</figcaption>
+                                  </td>
+                              </tr>
+                          </table>
+                      </div>
+
+                      <p>
+                          <b>The Cube Case</b>
+                      </p>
+
+                      <div align="middle">
+                          <table style="width=100%">
+                              <tr>
+                                  <td>
+                                      <img src="images/task6-cube.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Original Cube Mesh</figcaption>
+                                  </td>
+                              </tr>
+                          </table>
+                      </div>
+                      <div align="middle">
+                          <table style="width=100%">
+                              <tr>
+                                  <td>
+                                      <img src="images/task6-cube-upsample-1.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Cube Mesh Upsampled Once</figcaption>
+                                  </td>
+                                  <td>
+                                      <img src="images/task6-cube-upsample-2.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Cube Mesh Upsampled Twice</figcaption>
+                                  </td>
+                              </tr>
+                              <br />
+                              <tr>
+                                  <td>
+                                      <img src="images/task6-cube-upsample-3.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Cube Mesh Upsampled Three Times</figcaption>
+                                  </td>
+                                  <td>
+                                      <img src="images/task6-cube-upsample-4.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Cube Mesh Upsampled Four Times</figcaption>
+                                  </td>
+                              </tr>
+                          </table>
+                      </div>
+
+                      <p>
+                          If you look carefully, the upsampled version of the cube is not symmetrical. This is because the edges on each face of the cube are not symmetrical
+                          (the diagonals are going in different directions). We can correct this effect by splitting each edge that is in the middle of a face on the cube.
+                          This ensures that each face has edges in the shape of an X on them, which will make sure the mesh is symmetrical when we upsample. You can see the
+                          difference in the images below.
+                      </p>
+
+                      <div align="middle">
+                          <table style="width=100%">
+                              <tr>
+                                  <td>
+                                      <img src="images/task6-cube-sym.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Symmetrical Cube Mesh</figcaption>
+                                  </td>
+                              </tr>
+                          </table>
+                      </div>
+                      <div align="middle">
+                          <table style="width=100%">
+                              <tr>
+                                  <td>
+                                      <img src="images/task6-cube-sym-upsample-1.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Symmetrical Cube Mesh Upsampled Once</figcaption>
+                                  </td>
+                                  <td>
+                                      <img src="images/task6-cube-sym-upsample-2.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Symmetrical Cube Mesh Upsampled Twice</figcaption>
+                                  </td>
+                              </tr>
+                              <br />
+                              <tr>
+                                  <td>
+                                      <img src="images/task6-cube-sym-upsample-3.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Symmetrical Cube Mesh Upsampled Three Times</figcaption>
+                                  </td>
+                                  <td>
+                                      <img src="images/task6-cube-sym-upsample-4.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Symmetrical Cube Mesh Upsampled Four Times</figcaption>
+                                  </td>
+                              </tr>
+                          </table>
+                      </div>
+
+
+                      <h2 align="middle">Section III: Optional Extra Credit</h2>
+                      <p>If you are not participating in the optional mesh competition, don't worry about this section!</p>
+
+                      <h3 align="middle">Part 7: Design your own mesh!</h3>
+                      <p>We've created a model of a Crewmate from Among Us. For the main body, we started with an box, and then inserted several edge loops to subdivide more. Then, we extruded the legs, as well as shaped the head rounder. After that, we modeled the bag and the eye goggles in a similar fashion. Here's the final mesh with all hard edges: </p>
+
+                      <div align="middle">
+                          <table style="width=100%">
+                              <tr>
+                                  <td>
+                                      <img src="images/task7-0.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Original Mesh</figcaption>
+                                  </td>
+                              </tr>
+                          </table>
+                      </div>
+
+                      <p>You can easily tell that there are more edges loops than required to represent this simple mesh. This is because we use these "extra" edge loops to guide the final appearance of mesh upsampling by subdivision. Here're the meshes after different rounds of subdivision: </p>
+
+                      <div align="middle">
+                          <table style="width=100%">
+                              <tr>
+                                  <td>
+                                      <img src="images/task7-1.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Upsampled Once</figcaption>
+                                  </td>
+                                  <td>
+                                      <img src="images/task7-2.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Upsampled Twice</figcaption>
+                                  </td>
+                              </tr>
+                              <br />
+                              <tr>
+                                  <td>
+                                      <img src="images/task7-3.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Upsampled Three Times</figcaption>
+                                  </td>
+                                  <td>
+                                      <img src="images/task7-4.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Upsampled Three Times with Smooth Normals</figcaption>
+                                  </td>
+                              </tr>
+                          </table>
+                      </div>
+
+                      <p>
+                          We've also created a special shader to shade the Crewmate. We tried to implement a physicaly based shading model, but due to the poor feature support of core OpenGL, we only did that for the direct lighting part.
+                          For the direct diffuse lighting, we chose the <a href="https://research.activision.com/publications/archives/material-advances-in-call-of-dutywwii">multiscattered version of renormalized Disney diffuse model</a>.
+                      </p>
+                      <p>
+                          For the direct specular lighting, there are 3 components, F, V, D. Here, we used Schlick approximation for the fresnel function, SmithGGX for the visibility function, and GGX for the normal distribution function. Since we are using Cook-Torrance model here, we're losing the multi-bounce part of specular lighting.
+                      </p>
+                      <p>
+                          We ignore the physically-correct indirect diffuse lighting because there's no irradiance map to sample from.
+                      </p>
+                      <p>
+                          For the indirect specular lighting, we faked it by sampling the environment map. It is not physcially-correct because that'll involve too many samples at runtime and core OpenGL also doesn't support sampling texture at given LOD (so prefiltering doesn't work easily). We simply multiplied the strength of the reflection by the fresnel factor, computed from a roughness-affected-Schlick-approximation. For visual purposes, we multiplied an additional 1.5x power to light up the reflection a little bit.
+                          In addition, since core OpenGL doesn't support cubemap sampling, we had to convert the reflection direction to the uv postiion on a latitude-longtitude map as shown below:
+                          <br />
+                          <br />
+                          <code>
+                              vec2 dirToLat(vec3 dir) {<br />
+                              float u = (atan(dir.x / dir.z) + PI) / (2.0 * PI);<br />
+                              float v = (asin(dir.y) + PI / 2.0) / PI;<br />
+                              return vec2(u, v);<br />
+                              }
+                          </code>
+                      </p>
+                      <p>
+                          To avoid the purely black back faces caused by the lack of indirect diffuse lighting, we applied a small compensation to the back faces of the mesh. This is inspired by the half-lambert method invented by Valve. We modified it to 0.3-lambert since we don't want the back to be too bright with the following simple line of codes:
+                          <br />
+                          <br />
+                          <code>
+                              NdotL = NdotL * .7 + .3; // NdotL = clamp(dot(Normal, LightDirection), 0.0, 1.0);
+                          </code>
+                      </p>
+                      <p>
+                          We've assigned the material's linear roughness = 0.05, and metallic = 0.0. For the albedo color, we gradually increase the r-channel and decrease the b-channel from bottom to top. Finally. we've also applied a cyan rimlight to the model. Here're the final renderings of Crewmate:
+                      </p>
+
+                      <div align="middle">
+                          <table style="width=100%">
+                              <tr>
+                                  <td>
+                                      <img src="images/task7-7.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Front View</figcaption>
+                                  </td>
+                              </tr>
+                          </table>
+                      </div>
+
+                      <div align="middle">
+                          <table style="width=100%">
+                              <tr>
+                                  <td>
+                                      <img src="images/task7-5.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Side View</figcaption>
+                                  </td>
+                                  <td>
+                                      <img src="images/task7-6.png" align="middle" width="400px" />
+                                      <figcaption align="middle">Top View</figcaption>
+                                  </td>
+                              </tr>
+                          </table>
+                      </div>
+
+                  </div>
+
+        </body>
+
+    </html>
+</div>
+</body>
 </html>
